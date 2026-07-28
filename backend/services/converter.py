@@ -54,6 +54,13 @@ try:
 except ImportError:
     CHUNKING_AVAILABLE = False
 
+try:
+    from docling_core.types.doc import ImageRefMode
+    IMAGE_REF_MODE_AVAILABLE = True
+except ImportError:
+    ImageRefMode = None
+    IMAGE_REF_MODE_AVAILABLE = False
+
 import shutil
 
 from config import OUTPUT_FOLDER, DEFAULT_CONVERSION_SETTINGS
@@ -218,6 +225,14 @@ TABLE_MODE_MAP = {
     "accurate": TableFormerMode.ACCURATE,
 }
 
+# Image export mode mapping (settings string -> Docling ImageRefMode)
+IMAGE_EXPORT_MODE_MAP = {}
+if IMAGE_REF_MODE_AVAILABLE:
+    IMAGE_EXPORT_MODE_MAP = {
+        "placeholder": ImageRefMode.PLACEHOLDER,
+        "embedded": ImageRefMode.EMBEDDED,
+        "referenced": ImageRefMode.REFERENCED,
+    }
 
 class ConversionStatus(Enum):
     """Conversion job status."""
@@ -344,6 +359,22 @@ class ConverterService:
             do_cell_matching=table_settings.get("do_cell_matching", True),
             mode=mode,
         )
+    
+    def _get_image_export_mode(self, settings: Dict[str, Any]):
+        """
+        Resolve the configured image export mode to Docling's ImageRefMode enum.
+
+        Returns None if docling_core.types.doc.ImageRefMode isn't available in the
+        installed Docling version — callers should then fall back to the export
+        function's own default behavior.
+        """
+        if not IMAGE_REF_MODE_AVAILABLE:
+            return None
+        image_settings = settings.get("images", {}) or {}
+        mode_str = image_settings.get("image_export_mode", "placeholder")
+        return IMAGE_EXPORT_MODE_MAP.get(mode_str, ImageRefMode.PLACEHOLDER)
+
+
 
     def _get_accelerator_options(self, settings: Dict[str, Any]) -> AcceleratorOptions:
         """Create accelerator options based on settings."""
@@ -599,6 +630,54 @@ class ConverterService:
                             print(f"Error extracting image {i}: {e}")
         except Exception as e:
             print(f"Error extracting images: {e}")
+
+        return images
+
+    def _images_from_referenced_export(self, doc, images_dir: Path) -> List[Dict]:
+        """
+        Build the Images-tab gallery list from files Docling itself wrote to
+        `images_dir` during a REFERENCED-mode markdown export, instead of
+        extracting (and duplicating on disk) every picture a second time.
+
+        Captions/labels are matched best-effort by position against
+        `doc.pictures` - if the counts don't line up exactly, the extra
+        images simply get an empty caption instead of causing an error.
+        """
+        images: List[Dict] = []
+        if not images_dir.exists():
+            return images
+
+        image_extensions = ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.svg', '*.bmp']
+        files: List[Path] = []
+        for ext in image_extensions:
+            files.extend(images_dir.glob(ext))
+        # Docling names these "image_{index:06d}_{hash}{ext}" - sorting by
+        # filename puts them back in document order.
+        files.sort(key=lambda p: p.name)
+
+        pictures = list(getattr(doc, 'pictures', None) or [])
+
+        for i, file_path in enumerate(files):
+            caption = ""
+            label = None
+            if i < len(pictures):
+                picture = pictures[i]
+                if hasattr(picture, 'captions') and picture.captions:
+                    try:
+                        caption = " ".join(
+                            c.text for c in picture.captions if hasattr(c, 'text')
+                        )
+                    except Exception:
+                        caption = ""
+                label = getattr(picture, 'label', None)
+
+            images.append({
+                "id": i + 1,
+                "filename": file_path.name,
+                "path": str(file_path),
+                "caption": caption,
+                "label": label,
+            })
 
         return images
 
@@ -882,12 +961,50 @@ class ConverterService:
 
                 doc = result.document
 
+                # Resolve the configured image export mode (placeholder/embedded/referenced).
+                # Everything - our own extracted-images gallery AND Docling's own
+                # referenced-mode artifacts - always lands in this single "images"
+                # directory, so we never end up with a second, duplicate folder.
+                image_export_mode = self._get_image_export_mode(job.settings)
+                images_dir = output_base / "images"
+                uses_referenced_images = (
+                    IMAGE_REF_MODE_AVAILABLE
+                    and image_export_mode == ImageRefMode.REFERENCED
+                )
+
+                md_path = output_base / f"{Path(job.original_filename).stem}.md"
+                md_content: Optional[str] = None
+
+                if uses_referenced_images:
+                    job.progress = 55
+                    job.message = "Generating output formats..."
+                    try:
+                        # Docling writes the picture files it needs for REFERENCED
+                        # mode itself, straight into images_dir.
+                        doc.save_as_markdown(
+                            md_path,
+                            artifacts_dir=images_dir,
+                            image_mode=ImageRefMode.REFERENCED,
+                        )
+                        md_content = md_path.read_text(encoding="utf-8")
+                    except Exception as e:
+                        print(f"[converter] Referenced-mode markdown export failed, falling back to embedded: {e}")
+                        uses_referenced_images = False
+                        md_content = doc.export_to_markdown(image_mode=ImageRefMode.EMBEDDED)
+                        md_path.write_text(md_content, encoding="utf-8")
+
                 job.progress = 60
                 job.message = "Extracting images and tables..."
 
                 # Extract images
                 image_settings = job.settings.get("images", {})
-                if image_settings.get("extract", True):
+                if uses_referenced_images:
+                    # Images were already written to images_dir by the referenced
+                    # markdown export above - build the gallery list from those
+                    # files instead of extracting (and duplicating) every picture
+                    # a second time with our own naming scheme.
+                    job.extracted_images = self._images_from_referenced_export(doc, images_dir)
+                elif image_settings.get("extract", True):
                     docling_images = self._extract_images(doc, output_base, job)
 
                     # Merge with pre-extracted images (from URL HTML downloads)
@@ -911,19 +1028,28 @@ class ConverterService:
                 job.progress = 70
                 job.message = "Generating output formats..."
 
-                # Export to different formats
-                # Markdown
-                md_path = output_base / f"{Path(job.original_filename).stem}.md"
-                md_content = doc.export_to_markdown()
-                md_path.write_text(md_content, encoding="utf-8")
+                # Markdown (already generated above if referenced mode succeeded)
+                if md_content is None:
+                    if image_export_mode is not None:
+                        md_content = doc.export_to_markdown(image_mode=image_export_mode)
+                    else:
+                        md_content = doc.export_to_markdown()
+                    md_path.write_text(md_content, encoding="utf-8")
                 job.output_paths["markdown"] = str(md_path)
 
                 job.progress = 75
 
-                # HTML
+                # HTML - kept self-contained (embedded) when the main export is
+                # "referenced", so we don't need a second artifact-writing pass
+                # for a format the folder-duplication issue wasn't even about.
                 try:
                     html_path = output_base / f"{Path(job.original_filename).stem}.html"
-                    html_content = doc.export_to_html()
+                    if uses_referenced_images:
+                        html_content = doc.export_to_html(image_mode=ImageRefMode.EMBEDDED)
+                    elif image_export_mode is not None:
+                        html_content = doc.export_to_html(image_mode=image_export_mode)
+                    else:
+                        html_content = doc.export_to_html()
                     html_path.write_text(html_content, encoding="utf-8")
                     job.output_paths["html"] = str(html_path)
                 except Exception as e:
