@@ -42,6 +42,13 @@ from config import DEFAULT_CONVERSION_SETTINGS, OUTPUT_FOLDER, BACKEND_DIR
 from routes.settings import load_settings
 from utils.security import validate_job_id, get_validated_output_dir, validate_url_safe_for_request
 
+from utils.security import validate_job_id, get_validated_output_dir, validate_url_safe_for_request
+from utils.translation_export import (
+    generate_translation_markdown_for_job,
+    TranslationExportError,
+)
+
+
 logger = logging.getLogger(__name__)
 
 convert_bp = Blueprint("convert", __name__)
@@ -1472,6 +1479,50 @@ def get_document_chunks(job_id: str):
         "count": len(job.chunks)
     })
 
+@convert_bp.route("/convert/<job_id>/prepare-translation", methods=["POST"])
+def prepare_translation_markdown(job_id: str):
+    """
+    Generate a translation-ready Markdown export: every table is replaced by
+    a fenced ```csv code block built from tables/table_N.csv, instead of a
+    native Markdown table. Returns the generated file as a download.
+
+    Works purely off files already on disk under OUTPUT_FOLDER/<job_id>, so
+    it's available for completed jobs regardless of whether the in-memory
+    job object still exists (same fallback philosophy as the rest of this
+    file for multi-worker deployments).
+    """
+    validate_job_id(job_id)
+    output_dir = get_validated_output_dir(job_id, OUTPUT_FOLDER)
+
+    if not output_dir.exists():
+        raise NotFound(f"Job {job_id} not found")
+
+    try:
+        result_path, stats = generate_translation_markdown_for_job(job_id, OUTPUT_FOLDER)
+    except TranslationExportError as e:
+        return jsonify({"error": str(e)}), 400
+
+    # Security: double-check the generated path stays within OUTPUT_FOLDER,
+    # even though generate_translation_markdown_for_job only ever writes
+    # next to the already-validated source markdown file.
+    try:
+        result_path.resolve().relative_to(OUTPUT_FOLDER.resolve())
+    except ValueError:
+        raise NotFound("Resource not found")
+
+    logger.info(
+        "[prepare-translation] job=%s tables_embedded=%d/%d",
+        job_id,
+        stats.tables_embedded,
+        stats.tables_found_in_markdown,
+    )
+
+    return send_file(
+        str(result_path.resolve()),
+        mimetype="text/markdown",
+        as_attachment=True,
+        download_name=result_path.name,
+    )
 
 @convert_bp.route("/export/<job_id>/<format_type>", methods=["GET"])
 def export_document(job_id: str, format_type: str):
