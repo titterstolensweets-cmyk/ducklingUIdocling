@@ -67,6 +67,7 @@ export interface ImageSettings {
   generate_picture_images: boolean;
   generate_table_images: boolean;
   images_scale: number;
+  image_export_mode: 'placeholder' | 'embedded' | 'referenced';
 }
 
 export interface PerformanceSettings {
@@ -318,6 +319,11 @@ export interface TableSettingsResponse {
 
 export interface ImageSettingsResponse {
   images: ImageSettings;
+  available_image_export_modes: {
+    id: string;
+    name: string;
+    description: string;
+  }[];
   options: Record<string, {
     description: string;
     default: string | number | boolean;
