@@ -465,6 +465,47 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     }
                     disabled={images.isUpdating}
                   />
+                  <SelectSetting
+                    label={t("settings.images.exportMode.label")}
+                    description={t("settings.images.exportMode.description")}
+                    value={images.images?.image_export_mode ?? "placeholder"}
+                    options={
+                      images.availableExportModes.length > 0
+                        ? images.availableExportModes.map((m) => ({
+                            value: m.id,
+                            label: m.name,
+                          }))
+                        : [
+                            {
+                              value: "placeholder",
+                              label: t(
+                                "settings.images.exportMode.options.placeholder"
+                              ),
+                            },
+                            {
+                              value: "embedded",
+                              label: t(
+                                "settings.images.exportMode.options.embedded"
+                              ),
+                            },
+                            {
+                              value: "referenced",
+                              label: t(
+                                "settings.images.exportMode.options.referenced"
+                              ),
+                            },
+                          ]
+                    }
+                    onChange={(image_export_mode) =>
+                      images.updateImages({
+                        image_export_mode: image_export_mode as
+                          | "placeholder"
+                          | "embedded"
+                          | "referenced",
+                      })
+                    }
+                    disabled={images.isUpdating}
+                  />
                   <SliderSetting
                     label={t("settings.images.scale.label")}
                     description={t("settings.images.scale.description")}
