@@ -196,6 +196,7 @@ export function useImageSettings() {
 
   return {
     images: imageQuery.data?.images,
+    availableExportModes: imageQuery.data?.available_image_export_modes || [],
     options: imageQuery.data?.options || {},
     isLoading: imageQuery.isLoading,
     error: imageQuery.error,
