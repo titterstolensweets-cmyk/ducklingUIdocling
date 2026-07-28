@@ -40,6 +40,7 @@ from config import (
     ACCELERATOR_DEVICES,
     TABLE_MODES,
     OCR_LANGUAGES,
+    IMAGE_EXPORT_MODES,
 )
 from models.database import UserSettings, get_db_session
 
@@ -866,6 +867,7 @@ def get_image_settings():
     settings = load_settings()
     return jsonify({
         "images": settings.get("images", DEFAULT_CONVERSION_SETTINGS["images"]),
+        "available_image_export_modes": IMAGE_EXPORT_MODES,
         "options": {
             "extract": {
                 "description": "Extract embedded images from documents",
@@ -892,6 +894,10 @@ def get_image_settings():
                 "default": 1.0,
                 "min": 0.1,
                 "max": 4.0
+            },
+            "image_export_mode": {
+                "description": "How images are referenced in exported Markdown/HTML output",
+                "default": "placeholder"
             }
         }
     })
@@ -906,12 +912,19 @@ def update_image_settings():
     image_settings = request.get_json()
     current_settings = load_settings()
 
-    # Validate image settings
+# Validate image settings
     if "images_scale" in image_settings:
         if not isinstance(image_settings["images_scale"], (int, float)):
             return jsonify({"error": "images_scale must be a number"}), 400
         if not 0.1 <= image_settings["images_scale"] <= 4.0:
             return jsonify({"error": "images_scale must be between 0.1 and 4.0"}), 400
+
+    if "image_export_mode" in image_settings:
+        valid_modes = [m["id"] for m in IMAGE_EXPORT_MODES]
+        if image_settings["image_export_mode"] not in valid_modes:
+            return jsonify({
+                "error": f"image_export_mode must be one of: {', '.join(valid_modes)}"
+            }), 400
 
     current_settings["images"] = {
         **current_settings.get("images", {}),
