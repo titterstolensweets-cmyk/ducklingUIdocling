@@ -335,6 +335,7 @@ export const updateImageSettings = async (
     generate_picture_images: boolean;
     generate_table_images: boolean;
     images_scale: number;
+    image_export_mode: 'placeholder' | 'embedded' | 'referenced';
   }>
 ): Promise<{ message: string; images: Record<string, unknown> }> => {
   const response = await api.put('/settings/images', settings);
@@ -439,6 +440,28 @@ export interface ModelDownloadProgress {
   progress: number;
   message: string;
 }
+
+
+export interface TranslationMarkdownResult {
+  blob: Blob;
+  filename: string;
+}
+
+export const prepareTranslationMarkdown = async (
+  jobId: string
+): Promise<TranslationMarkdownResult> => {
+  const response = await api.post(`/convert/${jobId}/prepare-translation`, undefined, {
+    responseType: 'blob',
+  });
+  const headers = response.headers as Record<string, string>;
+  const disposition = headers['content-disposition'];
+  const match = disposition ? /filename="?([^";]+)"?/i.exec(disposition) : null;
+  const filename = match?.[1] || `${jobId}.translation.md`;
+  return { blob: response.data, filename };
+};
+
+
+
 
 export const getEnrichmentSettings = async (): Promise<EnrichmentSettingsResponse> => {
   const response = await api.get('/settings/enrichment');
