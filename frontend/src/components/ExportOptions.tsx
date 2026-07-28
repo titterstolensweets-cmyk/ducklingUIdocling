@@ -35,6 +35,7 @@ import {
   downloadExtractedImage,
   downloadTableCsv,
   getExportContent,
+  prepareTranslationMarkdown,
 } from "../services/api";
 import type { ExtractedImage, ExtractedTable, DocumentChunk } from "../types";
 
@@ -178,6 +179,10 @@ export default function ExportOptions({
   const [chunks, setChunks] = useState<DocumentChunk[]>([]);
   const [loadingContent, setLoadingContent] = useState(false);
   const [generatingChunks, setGeneratingChunks] = useState(false);
+
+  const [preparingTranslation, setPreparingTranslation] = useState(false);
+  const [translationError, setTranslationError] = useState<string | null>(null);
+
 
   // Format-specific content cache
   const [formatContent, setFormatContent] = useState<Record<string, string>>(
@@ -330,6 +335,28 @@ export default function ExportOptions({
     }
   };
 
+  const handlePrepareTranslation = async () => {
+  setPreparingTranslation(true);
+  setTranslationError(null);
+  try {
+    const { blob, filename } = await prepareTranslationMarkdown(jobId);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  } catch (error) {
+    console.error("Error preparing translation markdown:", error);
+    setTranslationError(t("export.translationError"));
+  } finally {
+    setPreparingTranslation(false);
+  }
+};
+
+
   const tabs: { id: TabType; label: string; count?: number }[] = [
     { id: "formats", label: t("export.tabExportFormats") },
     { id: "images", label: t("export.tabImages"), count: imagesCount },
@@ -434,6 +461,41 @@ export default function ExportOptions({
             )}
           </button>
         ))}
+        {/* Tabs */}
+<ScrollableRegion
+  aria-label={t("export.scrollExportTabs")}
+  className="flex gap-2 mb-6 overflow-x-auto pb-2"
+>
+    <button
+    type="button"
+    onClick={handlePrepareTranslation}
+    disabled={preparingTranslation}
+    title={t("export.prepareTranslation")}
+    className="px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-colors bg-dark-800 text-dark-300 hover:bg-dark-700 disabled:opacity-50 flex items-center gap-2"
+  >
+    {preparingTranslation ? (
+      <div
+        className="w-4 h-4 border-2 border-dark-400 border-t-transparent rounded-full animate-spin"
+        aria-hidden="true"
+      />
+    ) : (
+      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <path
+          fillRule="evenodd"
+          d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
+          clipRule="evenodd"
+        />
+      </svg>
+    )}
+    {preparingTranslation
+      ? t("export.preparingTranslation")
+      : t("export.prepareTranslation")}
+  </button>
+</ScrollableRegion>
+
+{translationError && (
+  <p className="text-sm text-red-400 -mt-4 mb-4">{translationError}</p>
+)}
       </ScrollableRegion>
 
       <div className="grid lg:grid-cols-2 gap-6">
