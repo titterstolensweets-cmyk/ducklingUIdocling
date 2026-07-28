@@ -167,6 +167,15 @@
         "label": "Generate Table Images",
         "description": "Extract tables as images"
       },
+      "exportMode": {
+         "label": "Image Export Mode",
+         "description": "How images are referenced in exported Markdown and HTML output",
+         "options": {
+         "placeholder": "Placeholder",
+         "embedded": "Embedded (base64)",
+         "referenced": "Referenced (external files)"
+          }
+        },
       "scale": {
         "label": "Image Scale",
         "description": "Scale factor for extracted images (1.0 = original)"
@@ -434,7 +443,10 @@
     "scrollImageGrid": "Extracted images",
     "scrollTablesList": "Extracted tables",
     "scrollChunksList": "RAG chunks list",
-    "scrollTablePreview": "Table data preview"
+    "scrollTablePreview": "Table data preview",
+    "prepareTranslation": "Prepare for Translation",
+    "preparingTranslation": "Preparing…",
+    "translationError": "Failed to generate the translation-ready file"
   },
   "progress": {
     "title": "Converting Document",
