@@ -25,7 +25,11 @@
 import { CONVERT_ALLOWED_EXTENSIONS } from "./supportedUploadFormats";
 
 /** Default matches DropZone / backend per-file limit (100MB). */
-export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+/** export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; */
+
+/** Default matches DropZone / backend per-file limit (1Gb). */
+export const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+
 
 export type SkipReason = "unsupported_type" | "too_large";
 
